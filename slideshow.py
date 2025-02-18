@@ -38,7 +38,9 @@ def interest_factor(tags1, tags2):
 # ---- Optimisation avec Gurobi ----
 def optimize_slideshow(photos, slides):
     model = Model("Slideshow Optimization")
-    model.setParam("OutputFlag", 0)  # Désactiver les logs pour une exécution plus rapide
+    
+    # Gurobi affiche les logs par défaut
+    print("\n🚀 Lancement de l'optimisation Gurobi...")
 
     # Variables de sélection des diapositives
     x = model.addVars(slides, vtype=GRB.BINARY, name="x")
@@ -62,7 +64,6 @@ def optimize_slideshow(photos, slides):
     # Exécuter l'optimisation
     model.optimize()
 
-    # Extraction de la solution
     return [s for s in slides if x[s].x > 0.5]
 
 # ---- Calcul du score total ----
@@ -75,8 +76,8 @@ def compute_total_score(slideshow, photos):
     return total_score
 
 # ---- Sauvegarde de la solution ----
-def write_solution(slideshow, output_file):
-    with open(output_file, "w") as f:
+def write_solution(slideshow):
+    with open("slideshow.sol", "w") as f:
         f.write(f"{len(slideshow)}\n")
         for slide in slideshow:
             f.write(" ".join(map(str, slide)) + "\n")
@@ -84,24 +85,22 @@ def write_solution(slideshow, output_file):
 # ---- Exécution principale ----
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python slideshow.py [dataset1] [dataset2] ...")
+        print("Usage: python slideshow.py [dataset]")
         sys.exit(1)
 
-    for dataset in sys.argv[1:]:
-        if not os.path.exists(dataset):
-            print(f"Erreur : fichier '{dataset}' introuvable.")
-            continue
+    dataset = sys.argv[1]  # On prend uniquement le premier fichier donné
+    if not os.path.exists(dataset):
+        print(f"❌ Erreur : fichier '{dataset}' introuvable.")
+        sys.exit(1)
 
-        print(f"\n📂 Traitement du dataset : {dataset}")
+    print(f"\n📂 Traitement du dataset : {dataset}")
 
-        photos, verticals = read_dataset(dataset)
-        slides = create_slides(photos, verticals)
-        solution = optimize_slideshow(photos, slides)
-        score_total = compute_total_score(solution, photos)
+    photos, verticals = read_dataset(dataset)
+    slides = create_slides(photos, verticals)
+    solution = optimize_slideshow(photos, slides)
+    score_total = compute_total_score(solution, photos)
 
-        # Nom du fichier solution (ex: trivial.sol pour trivial.txt)
-        output_file = dataset.replace(".txt", ".sol")
-        write_solution(solution, output_file)
+    write_solution(solution)
 
-        print(f"✅ Solution optimale trouvée : {output_file}")
-        print(f"🏆 Score total : {score_total}\n")
+    print(f"✅ Solution optimale trouvée et sauvegardée dans 'slideshow.sol'")
+    print(f"🏆 Score total : {score_total}\n")
