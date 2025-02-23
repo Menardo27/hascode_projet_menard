@@ -1,6 +1,7 @@
 import sys
 import os
 from gurobipy import Model, GRB, quicksum
+from itertools import combinations
 
 # ---- Lecture du fichier ----
 def read_dataset(filename):
@@ -24,11 +25,18 @@ def read_dataset(filename):
 # ---- Création des diapositives possibles ----
 def create_slides(photos, verticals):
     slides = []
+    
+    # Ajouter les photos horizontales comme slides individuels
     for pid, photo in photos.items():
         if photo["orientation"] == "H":
             slides.append((pid,))
-    for i in range(0, len(verticals) - 1, 2):
-        slides.append((verticals[i], verticals[i + 1]))
+
+    # Générer toutes les combinaisons possibles de paires de photos verticales
+    vertical_pairs = list(combinations(verticals, 2))
+    
+    # Ajouter toutes les paires possibles à la liste des slides
+    slides.extend(vertical_pairs)
+
     return slides
 
 # ---- Calcul du score de transition ----
@@ -38,9 +46,12 @@ def interest_factor(tags1, tags2):
 # ---- Optimisation avec Gurobi ----
 def optimize_slideshow(photos, slides):
     model = Model("Slideshow Optimization")
-    
-    # Gurobi affiche les logs par défaut
+
     print("\n🚀 Lancement de l'optimisation Gurobi...")
+
+    # Séparer les slides horizontaux et verticaux
+    horizontal_slides = [s for s in slides if len(s) == 1]
+    vertical_slides = [s for s in slides if len(s) == 2]
 
     # Variables de sélection des diapositives
     x = model.addVars(slides, vtype=GRB.BINARY, name="x")
@@ -51,12 +62,24 @@ def optimize_slideshow(photos, slides):
     transition_scores = {(s1, s2): interest_factor(slide_tags[s1], slide_tags[s2]) for s1, s2 in slide_pairs}
     y = model.addVars(slide_pairs, vtype=GRB.BINARY, name="y")
 
-    # Contraintes
+    # Contrainte : une photo ne peut apparaître qu'une seule fois
     for pid in photos:
         model.addConstr(quicksum(x[s] for s in slides if pid in s) <= 1)
+
+    # Contrainte : une transition ne peut exister que si les deux diapositives sont sélectionnées
     for s1, s2 in slide_pairs:
         model.addConstr(y[s1, s2] <= x[s1])
         model.addConstr(y[s1, s2] <= x[s2])
+
+    # Variables pour compter les types de slides sélectionnés
+    h_count = quicksum(x[s] for s in horizontal_slides)
+    v_count = quicksum(x[s] for s in vertical_slides)
+
+    # Assurer que le diaporama contient au moins un slide horizontal et un slide vertical si possible
+    if len(horizontal_slides) > 0:
+        model.addConstr(h_count >= 1, "At least one horizontal slide")
+    if len(vertical_slides) > 0:
+        model.addConstr(v_count >= 1, "At least one vertical slide")
 
     # Objectif : maximiser la somme des scores de transition
     model.setObjective(quicksum(transition_scores[s1, s2] * y[s1, s2] for s1, s2 in slide_pairs), GRB.MAXIMIZE)
@@ -64,7 +87,32 @@ def optimize_slideshow(photos, slides):
     # Exécuter l'optimisation
     model.optimize()
 
-    return [s for s in slides if x[s].x > 0.5]
+    # Récupérer les slides sélectionnés
+    selected_slides = [s for s in slides if x[s].x > 0.5]
+
+    # Trouver le meilleur ordre pour maximiser le score
+    best_order = order_slides(selected_slides, transition_scores)
+
+    return best_order
+
+# ---- Ordonner les slides pour maximiser le score ----
+def order_slides(slides, transition_scores):
+    """ Trouve l'ordre des slides maximisant le score des transitions """
+    ordered_slides = []
+    remaining_slides = set(slides)
+
+    # Commencer avec un slide aléatoire
+    current_slide = remaining_slides.pop()
+    ordered_slides.append(current_slide)
+
+    while remaining_slides:
+        # Trouver le slide qui donne la meilleure transition avec le dernier ajouté
+        next_slide = max(remaining_slides, key=lambda s: transition_scores.get((current_slide, s), 0))
+        ordered_slides.append(next_slide)
+        remaining_slides.remove(next_slide)
+        current_slide = next_slide
+
+    return ordered_slides
 
 # ---- Calcul du score total ----
 def compute_total_score(slideshow, photos):
